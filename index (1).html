@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador Data Center A/B – Torre de Enfriamiento vs Free-Cooling</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0f172a;--panel:#1e293b;--panel2:#273449;--txt:#e2e8f0;--mut:#94a3b8;--a:#38bdf8;--b:#34d399;--warn:#f59e0b;--bad:#ef4444;--bd:#334155}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:18px 24px;border-bottom:1px solid var(--bd);background:#0b1222}
+header h1{margin:0;font-size:1.35rem}
+header p{margin:4px 0 0;color:var(--mut);font-size:.9rem}
+main{max-width:1250px;margin:0 auto;padding:18px}
+.panel{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}
+.panel h2{margin:0 0 12px;font-size:1.05rem}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.ctl label{display:block;font-size:.85rem;color:var(--mut);margin-bottom:6px}
+.ctl .val{font-size:1.5rem;font-weight:700;color:var(--txt)}
+input[type=range]{width:100%;accent-color:var(--b)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+button{background:var(--panel2);color:var(--txt);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem}
+button:hover{border-color:var(--a)}
+button.active{background:var(--a);color:#0b1222;border-color:var(--a);font-weight:700}
+.switch{display:flex;align-items:center;gap:10px}
+.switch input{display:none}
+.slider{width:46px;height:24px;background:#475569;border-radius:12px;position:relative;cursor:pointer;transition:.2s}
+.slider::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+.switch input:checked+.slider{background:var(--b)}
+.switch input:checked+.slider::after{left:25px}
+#warn{display:none;background:#451a03;border:1px solid var(--warn);color:#fde68a;border-radius:10px;padding:12px;margin-bottom:16px}
+#warn.crit{background:#450a0a;border-color:var(--bad);color:#fecaca}
+.cards{display:grid;gap:16px}
+.cards.two{grid-template-columns:1fr 1fr}
+@media(max-width:800px){.cards.two{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:16px}
+.card.A{border-top:4px solid var(--a)}
+.card.B{border-top:4px solid var(--b)}
+.card h3{margin:0 0 10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--panel2);border-radius:8px;padding:10px}
+.kpi span{display:block;font-size:.75rem;color:var(--mut)}
+.kpi b{font-size:1.15rem}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+td,th{padding:7px 8px;border-bottom:1px solid var(--bd);text-align:right}
+td:first-child,th:first-child{text-align:left}
+.saving{font-size:1.1rem;padding:12px;border-radius:10px;background:var(--panel2);margin-top:10px}
+.good{color:var(--b)}.bad{color:var(--bad)}
+.chartbox{position:relative;height:340px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+details{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:12px 16px;margin-bottom:16px}
+summary{cursor:pointer;font-weight:700}
+code{background:#0b1222;padding:2px 6px;border-radius:4px;color:#a5f3fc}
+.note{color:var(--mut);font-size:.85rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Simulador Data Center A/B – Rack de IA de 100 kW</h1>
+  <p>Caso A: Torre de enfriamiento por evaporación · Caso B: Free-Cooling (aire exterior en el altiplano) · Tarifas Costa Rica</p>
+</header>
+<main>
+
+<section class="panel">
+  <h2>Controles</h2>
+  <div class="controls">
+    <div class="ctl">
+      <label>Modo de vista</label>
+      <div class="switch">
+        <span>Individual</span>
+        <label style="margin:0"><input type="checkbox" id="cmp" checked><div class="slider"></div></label>
+        <span>Comparativa</span>
+      </div>
+      <div class="btns" id="caseSel" style="display:none">
+        <button data-c="A" class="active">Caso A – Agua</button>
+        <button data-c="B">Caso B – Free-Cooling</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Temperatura exterior T_in (Free-Cooling)</label>
+      <div class="val"><span id="tVal">20.0</span> °C</div>
+      <input type="range" id="tin" min="-15" max="34" step="0.5" value="20">
+      <div class="btns">
+        <button data-t="10">10 °C</button><button data-t="20">20 °C</button><button data-t="30">30 °C</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Horas de operación (H_op)</label>
+      <div class="val"><span id="hVal">720</span> h</div>
+      <input type="range" id="hop" min="1" max="8760" step="1" value="720">
+      <div class="btns">
+        <button data-h="1">1 hora</button><button data-h="24">24 horas</button><button data-h="720">720 h/mes</button><button data-h="8760">8,760 h/año</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="warn"></div>
+
+<section class="cards two" id="cards">
+  <div class="card A" id="cardA">
+    <h3>Caso A – Torre de Enfriamiento (Agua 20 → 35 °C)</h3>
+    <div class="kpis" id="kA"></div>
+  </div>
+  <div class="card B" id="cardB">
+    <h3>Caso B – Free-Cooling (Aire exterior)</h3>
+    <div class="kpis" id="kB"></div>
+  </div>
+</section>
+
+<section class="panel" style="margin-top:16px" id="costPanel">
+  <h2>Comparación de costos operativos (<span id="hLbl"></span> h)</h2>
+  <table id="costTable"></table>
+  <div class="saving" id="saving"></div>
+</section>
+
+<section class="grid2">
+  <div class="panel"><h2>Potencia eléctrica (kW) vs T_in</h2><div class="chartbox"><canvas id="chP"></canvas></div></div>
+  <div class="panel"><h2>Costo operativo (CRC) vs T_in</h2><div class="chartbox"><canvas id="chC"></canvas></div></div>
+</section>
+<p class="note" id="beNote"></p>
+
+<details>
+  <summary>Fórmulas y Principios Físicos</summary>
+  <h4>Primera Ley de la Termodinámica</h4>
+  <p>En régimen estacionario el calor disipado por el rack se transfiere al fluido: <code>Q̇ = ṁ · cp · ΔT</code>. De aquí se despeja el caudal másico requerido: <code>ṁ = Q̇ / (cp · ΔT)</code>.</p>
+  <h4>Calor sensible vs. latente</h4>
+  <p>El calor sensible cambia la temperatura del fluido (<code>cp·ΔT</code>). El calor latente se absorbe en el cambio de fase: en la torre, parte del agua se evapora y retira <code>Q̇ = ṁ_evap · Lv</code>, con Lv = 2,440,000 J/kg. Esa agua evaporada es el consumo real que se paga.</p>
+  <h4>Principio de Bernoulli y pérdida de carga</h4>
+  <p>Para el agua, la potencia hidráulica es <code>ρ·g·V̇·H</code> y la eléctrica <code>P = ρ·g·V̇·H / η_bomba</code>, donde H incluye la altura estática y las pérdidas de carga. Para el aire, la caída de presión Δp equivale a la pérdida de carga y <code>P = Δp·V̇ / η_vent</code>.</p>
+  <h4>Por qué el Free-Cooling se encarece</h4>
+  <p>El aire tiene baja densidad (0.74 kg/m³ en altiplano) y bajo cp, por lo que cuando T_in se acerca a 35 °C, ΔT → 0 y el caudal <code>V̇ = Q̇ / (ρ·cp·ΔT)</code> tiende a infinito. Como P ∝ V̇, la potencia del ventilador crece de forma hiperbólica.</p>
+  <h4>Ecuaciones usadas</h4>
+  <p><code>ṁ_agua = Q̇/(cp·15)</code> · <code>V̇_evap = Q̇/Lv/ρ</code> · <code>P_bomba = ρ·g·V̇·H/η</code> · <code>ΔT_aire = 35 − T_in</code> · <code>P_vent = Δp·V̇_aire/η</code> · <code>Costo = V_evap·1650 + P·H_op·98.28</code></p>
+</details>
+
+</main>
+<script>
+// ---------- Constantes (SI) ----------
+const Q=100000, TOUT=35, G=9.81;
+const A={Tin:20,cp:4186,Lv:2440000,rho:1000,H:10.19,eta:0.70};
+const B={rho:0.74,cp:1005,dP:300,eta:0.60};
+const PW=1650.00, PE=98.28;
+
+function calcA(){
+  const m=Q/(A.cp*(TOUT-A.Tin));
+  const Vs=m/A.rho;
+  const VLh=Vs*3600*1000;
+  const mev=Q/A.Lv;
+  const evLh=(mev/A.rho)*3600*1000;
+  const evM3h=evLh/1000;
+  const PW_=(A.rho*G*Vs*A.H)/A.eta;
+  return {m,Vs,VLh,mev,evLh,evM3h,Pw:PW_,Pkw:PW_/1000};
+}
+function calcB(t){
+  const dT=TOUT-t;
+  const m=Q/(B.cp*dT);
+  const Vs=m/B.rho;
+  const Vh=Vs*3600;
+  const Pw=(B.dP*Vs)/B.eta;
+  return {dT,m,Vs,Vh,Pw,Pkw:Pw/1000};
+}
+function costs(t,h){
+  const a=calcA(), b=calcB(t);
+  const aw=a.evM3h*h*PW, ae=a.Pkw*h*PE;
+  const be=b.Pkw*h*PE;
+  return {a,b,Aagua:aw,Aelec:ae,Atot:aw+ae,Bagua:0,Belec:be,Btot:be};
+}
+// Punto de equilibrio: T donde Costo_B(T) = Costo_A (independiente de h)
+function breakEven(){
+  const a=calcA();
+  const perHA=a.evM3h*PW+a.Pkw*PE;       // CRC/h Caso A
+  const f=t=>calcB(t).Pkw*PE-perHA;
+  let lo=-15, hi=34.99;
+  if(f(lo)>0) return null;
+  if(f(34)<0) return null;
+  for(let i=0;i<80;i++){const mid=(lo+hi)/2; f(mid)<0?lo=mid:hi=mid;}
+  return (lo+hi)/2;
+}
+
+// ---------- Formato ----------
+const nf=(x,d=2)=>x.toLocaleString('es-CR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const crc=x=>'₡'+nf(x,2);
+const kpi=(l,v)=>`<div class="kpi"><span>${l}</span><b>${v}</b></div>`;
+
+// ---------- UI ----------
+const $=id=>document.getElementById(id);
+let view='A';
+function render(){
+  const t=parseFloat($('tin').value), h=parseInt($('hop').value);
+  $('tVal').textContent=nf(t,1); $('hVal').textContent=h.toLocaleString('es-CR'); $('hLbl').textContent=h.toLocaleString('es-CR');
+  const c=costs(t,h), a=c.a, b=c.b;
+
+  $('kA').innerHTML=
+    kpi('Caudal másico',nf(a.m)+' kg/s')+
+    kpi('Caudal volumétrico',nf(a.VLh,0)+' L/h')+
+    kpi('Evaporación',nf(a.evLh,1)+' L/h')+
+    kpi('Potencia bomba',nf(a.Pw,0)+' W ('+nf(a.Pkw)+' kW)')+
+    kpi('Costo agua',crc(c.Aagua))+kpi('Costo electricidad',crc(c.Aelec));
+  $('kB').innerHTML=
+    kpi('ΔT aire',nf(b.dT,1)+' °C')+
+    kpi('Caudal másico',nf(b.m)+' kg/s')+
+    kpi('Caudal volumétrico',nf(b.Vh,0)+' m³/h')+
+    kpi('Consumo de agua','0 L/h')+
+    kpi('Potencia ventilador',nf(b.Pkw)+' kW')+
+    kpi('Costo electricidad',crc(c.Belec));
+
+  const cmp=$('cmp').checked;
+  $('caseSel').style.display=cmp?'none':'flex';
+  $('cards').className='cards '+(cmp?'two':'');
+  $('cardA').style.display=(cmp||view==='A')?'':'none';
+  $('cardB').style.display=(cmp||view==='B')?'':'none';
+
+  // Advertencia
+  const w=$('warn');
+  if(t>=32){
+    w.style.display='block';
+    w.className=t>=33.5?'crit':'';
+    w.innerHTML=`⚠️ <b>Advertencia:</b> T_in (${nf(t,1)} °C) se acerca a 35 °C. El gradiente térmico ΔT = ${nf(b.dT,1)} °C tiende a cero y el caudal de aire requerido (${nf(b.Vh,0)} m³/h) se vuelve insostenible.`;
+  } else w.style.display='none';
+
+  // Tabla de costos
+  const rows=[['Costo de agua',c.Aagua,0],['Costo de electricidad',c.Aelec,c.Belec],['<b>Costo total</b>',c.Atot,c.Btot]];
+  $('costTable').innerHTML='<tr><th></th><th>Caso A (Agua)</th><th>Caso B (Free-Cooling)</th></tr>'+
+    rows.map(r=>`<tr><td>${r[0]}</td><td>${crc(r[1])}</td><td>${crc(r[2])}</td></tr>`).join('');
+  const diff=c.Atot-c.Btot;                 // >0: B ahorra
+  const pct=c.Atot>0?Math.abs(diff)/c.Atot*100:0;
+  const cheaper=diff>=0?'Free-Cooling (B)':'Torre de agua (A)';
+  $('saving').innerHTML=`<span class="${diff>=0?'good':'bad'}">Ahorro neto con ${cheaper}: <b>${crc(Math.abs(diff))}</b></span> · Diferencia: <b>${nf(pct,1)} %</b> respecto al Caso A`;
+
+  updateCharts(t,h);
+}
+
+// ---------- Gráficos ----------
+let chP,chC;
+function series(h){
+  const pts=[]; for(let t=-15;t<=34;t+=0.5) pts.push(t);
+  return pts;
+}
+function initCharts(){
+  const base=(ytitle)=>({responsive:true,maintainAspectRatio:false,parsing:false,
+    scales:{x:{type:'linear',min:-15,max:34,title:{display:true,text:'T_in (°C)',color:'#94a3b8'},ticks:{color:'#94a3b8'},grid:{color:'#334155'}},
+            y:{title:{display:true,text:ytitle,color:'#94a3b8'},ticks:{color:'#94a3b8'},grid:{color:'#334155'},beginAtZero:true}},
+    plugins:{legend:{labels:{color:'#e2e8f0'}}}});
+  chP=new Chart($('chP'),{type:'line',data:{datasets:[
+    {label:'Free-Cooling (ventilador)',data:[],borderColor:'#34d399',pointRadius:0,borderWidth:2},
+    {label:'Caso A (bomba)',data:[],borderColor:'#38bdf8',pointRadius:0,borderDash:[6,4],borderWidth:2},
+    {label:'T_in actual',data:[],type:'scatter',backgroundColor:'#f59e0b',pointRadius:6}
+  ]},options:base('Potencia eléctrica (kW)')});
+  chC=new Chart($('chC'),{type:'line',data:{datasets:[
+    {label:'Free-Cooling',data:[],borderColor:'#34d399',pointRadius:0,borderWidth:2},
+    {label:'Caso A (agua + bomba)',data:[],borderColor:'#38bdf8',pointRadius:0,borderDash:[6,4],borderWidth:2},
+    {label:'Punto de equilibrio',data:[],type:'scatter',backgroundColor:'#ef4444',pointRadius:8,pointStyle:'rectRot'},
+    {label:'T_in actual',data:[],type:'scatter',backgroundColor:'#f59e0b',pointRadius:6}
+  ]},options:base('Costo operativo (CRC)')});
+}
+function updateCharts(t,h){
+  const a=calcA(), xs=series();
+  chP.data.datasets[0].data=xs.map(x=>({x,y:calcB(x).Pkw}));
+  chP.data.datasets[1].data=[{x:-15,y:a.Pkw},{x:34,y:a.Pkw}];
+  chP.data.datasets[2].data=[{x:t,y:calcB(t).Pkw}];
+  chP.options.scales.y.max=Math.min(Math.max(30,calcB(34).Pkw),150);
+  chP.options.scales.y.max=40;
+  chP.update('none');
+
+  const ca=costs(t,h).Atot;
+  chC.data.datasets[0].data=xs.map(x=>({x,y:costs(x,h).Btot}));
+  chC.data.datasets[1].data=[{x:-15,y:ca},{x:34,y:ca}];
+  const be=breakEven();
+  chC.data.datasets[2].data=be===null?[]:[{x:be,y:ca}];
+  chC.data.datasets[3].data=[{x:t,y:costs(t,h).Btot}];
+  chC.options.scales.y.max=ca*3;
+  chC.update('none');
+  $('beNote').innerHTML=be===null?'No existe punto de equilibrio en el rango.':
+    `<b>Punto de equilibrio climático:</b> T_in ≈ <b>${nf(be,1)} °C</b>. Por debajo de esa temperatura el Free-Cooling es más barato que la torre de agua; por encima, el costo eléctrico del ventilador supera el costo del agua evaporada más la bomba (el gráfico se recorta en el eje Y para legibilidad).`;
+}
+
+// ---------- Eventos ----------
+$('tin').oninput=render; $('hop').oninput=render; $('cmp').onchange=render;
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{$('tin').value=b.dataset.t;render();});
+document.querySelectorAll('[data-h]').forEach(b=>b.onclick=()=>{$('hop').value=b.dataset.h;render();});
+document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{
+  view=b.dataset.c;
+  document.querySelectorAll('[data-c]').forEach(x=>x.classList.toggle('active',x===b));
+  render();
+});
+initCharts(); render();
+</script>
+</body>
+</html>
